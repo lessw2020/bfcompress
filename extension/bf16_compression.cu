@@ -1,10 +1,7 @@
 #include <cuda_runtime.h>
 #include <cuda_bf16.h>
-#include <cooperative_groups.h>
 #include <torch/extension.h>
 #include <iostream>
-
-namespace cg = cooperative_groups;
 
 __device__ __forceinline__ unsigned short __bfloat162ushort(__nv_bfloat16 val) {
     return *reinterpret_cast<unsigned short*>(&val);
@@ -46,7 +43,6 @@ __global__ void bfloat16_compress_kernel(
     int* __restrict__ output_bit_size,
     const int input_size
 ) {
-    cg::grid_group grid = cg::this_grid();
     const int tid = blockIdx.x * blockDim.x + threadIdx.x;
     const int stride = gridDim.x * blockDim.x;
 
@@ -87,12 +83,6 @@ __global__ void bfloat16_compress_kernel(
     __syncthreads();
     if (threadIdx.x == 0) {
         atomicAdd(output_bit_size, shared_bit_pos);
-    }
-
-    grid.sync();
-
-    if (grid.thread_rank() == 0) {
-        *output_bit_size = cg::reduce(grid, *output_bit_size, cg::plus<int>());
     }
 }
 
@@ -142,7 +132,7 @@ std::tuple<torch::Tensor, torch::Tensor> compress_bfloat16(torch::Tensor input) 
     auto output_bit_size = torch::zeros({1}, options.dtype(torch::kInt32));
 
     const int block_size = 256;
-    const int grid_size = std::min(65535, (input_size + block_size - 1) / block_size);
+    const int grid_size = (input_size + block_size - 1) / block_size;
 
     bfloat16_compress_kernel<<<grid_size, block_size>>>(
         reinterpret_cast<const __nv_bfloat16*>(input.data_ptr()),
@@ -167,7 +157,7 @@ torch::Tensor decompress_bfloat16(torch::Tensor input, torch::Tensor bit_size, i
     auto output = torch::empty({output_size}, options);
 
     const int block_size = 256;
-    const int grid_size = std::min(65535, (output_size + block_size - 1) / block_size);
+    const int grid_size = (output_size + block_size - 1) / block_size;
 
     bfloat16_decompress_kernel<<<grid_size, block_size>>>(
         reinterpret_cast<const unsigned int*>(input.data_ptr()),
