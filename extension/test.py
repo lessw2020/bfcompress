@@ -13,51 +13,28 @@ def benchmark_compression(input_size, num_iterations=1):
     input_tensor = torch.randn(input_size, dtype=torch.bfloat16, device=device)
     print("Input tensor generated.")
 
-    print("Running warm-up compression...")
-    try:
-        compressed_tensor, output_size = bfloat16_compression.compress_bfloat16(input_tensor)
-        print("Warm-up compression completed.")
-    except Exception as e:
-        print(f"Error during warm-up compression: {e}")
-        return
+    print("Running compression...")
+    compressed_tensor, output_size = bfloat16_compression.compress_bfloat16(input_tensor)
+    print("Compression completed.")
 
-    print("Running warm-up decompression...")
-    try:
-        decompressed_tensor = bfloat16_compression.decompress_bfloat16(compressed_tensor, input_size)
-        print("Warm-up decompression completed.")
-    except Exception as e:
-        print(f"Error during warm-up decompression: {e}")
-        return
+    print("Running decompression...")
+    decompressed_tensor = bfloat16_compression.decompress_bfloat16(compressed_tensor, input_size)
+    print("Decompression completed.")
 
-    print(f"Running {num_iterations} iterations of compression...")
     compression_times = []
-    for i in range(num_iterations):
-        try:
-            torch.cuda.synchronize()
-            start_time = time.time()
-            compressed_tensor, output_size = bfloat16_compression.compress_bfloat16(input_tensor)
-            torch.cuda.synchronize()
-            end_time = time.time()
-            compression_times.append(end_time - start_time)
-            print(f"Iteration {i+1} completed.")
-        except Exception as e:
-            print(f"Error during compression iteration {i+1}: {e}")
-            return
-
-    print(f"Running {num_iterations} iterations of decompression...")
     decompression_times = []
     for i in range(num_iterations):
-        try:
-            torch.cuda.synchronize()
-            start_time = time.time()
-            decompressed_tensor = bfloat16_compression.decompress_bfloat16(compressed_tensor, input_size)
-            torch.cuda.synchronize()
-            end_time = time.time()
-            decompression_times.append(end_time - start_time)
-            print(f"Iteration {i+1} completed.")
-        except Exception as e:
-            print(f"Error during decompression iteration {i+1}: {e}")
-            return
+        torch.cuda.synchronize()
+        start_time = time.time()
+        compressed_tensor, _ = bfloat16_compression.compress_bfloat16(input_tensor)
+        torch.cuda.synchronize()
+        compression_times.append(time.time() - start_time)
+
+        torch.cuda.synchronize()
+        start_time = time.time()
+        decompressed_tensor = bfloat16_compression.decompress_bfloat16(compressed_tensor, input_size)
+        torch.cuda.synchronize()
+        decompression_times.append(time.time() - start_time)
 
     compression_time = np.mean(compression_times)
     decompression_time = np.mean(decompression_times)
@@ -76,16 +53,21 @@ def benchmark_compression(input_size, num_iterations=1):
     print(f"Compression throughput: {compression_throughput:.2f} MB/s")
     print(f"Decompression throughput: {decompression_throughput:.2f} MB/s")
 
-    exact_matches = torch.sum(input_tensor.bitwise_equal(decompressed_tensor)).item()
+    # Compare tensors element-wise
+    exact_matches = torch.sum(input_tensor == decompressed_tensor).item()
     print(f"Number of exact matches: {exact_matches} out of {input_size}")
 
     if exact_matches < input_size:
-        mismatch_indices = torch.where(~input_tensor.bitwise_equal(decompressed_tensor))[0]
+        mismatch_indices = torch.where(input_tensor != decompressed_tensor)[0]
         print("\nFirst 10 mismatches:")
         for idx in mismatch_indices[:10]:
+            input_val = input_tensor[idx].item()
+            output_val = decompressed_tensor[idx].item()
+            input_hex = input_tensor[idx].view('int16').item()
+            output_hex = decompressed_tensor[idx].view('int16').item()
             print(f"Index {idx}:")
-            print(f"  Input:  {input_tensor[idx].item()}")
-            print(f"  Output: {decompressed_tensor[idx].item()}")
+            print(f"  Input:  {input_val} (hex: {input_hex:04x})")
+            print(f"  Output: {output_val} (hex: {output_hex:04x})")
 
     nan_count = torch.isnan(decompressed_tensor).sum().item()
     inf_count = torch.isinf(decompressed_tensor).sum().item()
