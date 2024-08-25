@@ -9,7 +9,7 @@ setup(
         ], 
         extra_compile_args={
             'cxx': ['-O3'],
-            'nvcc': ['-O3', '-arch=sm_80']  # Adjust sm_XX based on your GPU architecture
+            'nvcc': ['-O3', '-arch=sm_90']  # Adjust sm_XX based on your GPU architecture
         })
     ],
     cmdclass={
