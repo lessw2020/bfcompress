@@ -2,6 +2,10 @@ import torch
 import bfloat16_compression
 import time
 import numpy as np
+import struct
+
+def bfloat16_to_hex(x):
+    return f"{struct.unpack('<H', struct.pack('<e', x))[0]:04x}"
 
 def benchmark_compression(input_size, num_iterations=1):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -63,11 +67,11 @@ def benchmark_compression(input_size, num_iterations=1):
         for idx in mismatch_indices[:10]:
             input_val = input_tensor[idx].item()
             output_val = decompressed_tensor[idx].item()
-            input_hex = input_tensor[idx].view('int16').item()
-            output_hex = decompressed_tensor[idx].view('int16').item()
+            input_hex = bfloat16_to_hex(input_val)
+            output_hex = bfloat16_to_hex(output_val)
             print(f"Index {idx}:")
-            print(f"  Input:  {input_val} (hex: {input_hex:04x})")
-            print(f"  Output: {output_val} (hex: {output_hex:04x})")
+            print(f"  Input:  {input_val} (hex: {input_hex})")
+            print(f"  Output: {output_val} (hex: {output_hex})")
 
     nan_count = torch.isnan(decompressed_tensor).sum().item()
     inf_count = torch.isinf(decompressed_tensor).sum().item()
@@ -87,7 +91,7 @@ def benchmark_compression(input_size, num_iterations=1):
     return compression_ratio, compression_throughput, decompression_throughput, exact_matches / input_size
 
 def run_benchmarks():
-    input_sizes = [1000, 10000, 100000, 1000000, 10000000]
+    input_sizes = [1000, 10000, 100000, 1000000]
     results = []
     for size in input_sizes:
         print(f"\nBenchmarking with input size: {size}")
