@@ -89,6 +89,53 @@ __global__ void bfloat16_compress_kernel(
 
     // Write compressed data
     if (tid < input_size) {
+__global__ void bfloat16_compress_kernel(
+    const __nv_bfloat16* __restrict__ input,
+    unsigned int* __restrict__ output,
+    int* __restrict__ output_size,
+    const int input_size
+) {
+    cg::thread_block block = cg::this_thread_block();
+    const int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    const int local_id = threadIdx.x;
+
+    __shared__ unsigned short s_input[1024];
+    __shared__ unsigned int s_prefix_sum[1024];
+
+    // Load input into shared memory
+    if (tid < input_size) {
+        s_input[local_id] = __bfloat162ushort(input[tid]);
+    } else {
+        s_input[local_id] = 0;
+    }
+    block.sync();
+
+    // Compute deltas and compress
+    unsigned short prev = (local_id > 0) ? s_input[local_id - 1] : 
+                          (blockIdx.x > 0 && tid > 0) ? __bfloat162ushort(input[tid - 1]) : 0;
+    short delta = static_cast<short>(s_input[local_id]) - static_cast<short>(prev);
+    unsigned int compressed = compress_delta(delta);
+    
+    // Compute prefix sum of compressed sizes
+    unsigned int size = (compressed == 0) ? 1 : ((compressed & (1U << 5)) ? 17 : ((compressed & (1U << 4)) ? 9 : 5));
+    s_prefix_sum[local_id] = size;
+    block.sync();
+
+    // Parallel prefix sum
+    for (int stride = 1; stride < 1024; stride *= 2) {
+        unsigned int n = 0;
+        if (local_id >= stride) {
+            n = s_prefix_sum[local_id - stride];
+        }
+        block.sync();
+        if (local_id >= stride) {
+            s_prefix_sum[local_id] += n;
+        }
+        block.sync();
+    }
+
+    // Write compressed data
+    if (tid < input_size) {
         unsigned int write_offset = (blockIdx.x > 0) ? atomicAdd(output_size, s_prefix_sum[1023]) : 0;
         write_offset += (local_id > 0) ? s_prefix_sum[local_id - 1] : 0;
         
@@ -101,17 +148,13 @@ __global__ void bfloat16_compress_kernel(
             atomicOr(&output[word_offset + 1], compressed >> (32 - bit_offset));
         }
 
-        if (tid < 10) {  // Print debug info for first 10 elements
+        if (tid < 10 || (tid % 1000 == 0)) {  // Print debug info for first 10 elements and every 1000th element
             printf("Debug Compress: tid=%d, input=%hu, delta=%hd, compressed=%u, bits=%u\n", 
                    tid, __bfloat162ushort(input[tid]), delta, compressed, bits_to_write);
         }
     }
 
     // Update total bit size
-    if (threadIdx.x == 0 && blockIdx.x == 0) {
-        *output_size = 0;
-    }
-    __syncthreads();
     if (threadIdx.x == 0) {
         atomicAdd(output_size, s_prefix_sum[1023]);
     }
