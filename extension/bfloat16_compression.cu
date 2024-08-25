@@ -153,13 +153,12 @@ __global__ void bfloat16_decompress_kernel(
         unsigned short current = prev + delta;
         if (i == tid) {
             output[i] = ushort_to_bfloat16(current);
-            printf("Debug: tid=%d, prev=%hu, delta=%hd, current=%hu, output=%hu\n", 
+            printf("Debug Decompress: tid=%d, prev=%hu, delta=%hd, current=%hu, output=%hu\n", 
                    tid, prev, delta, current, __bfloat162ushort(output[i]));
         }
         prev = current;
     }
 }
-
 std::tuple<torch::Tensor, torch::Tensor> compress_bfloat16(torch::Tensor input) {
     TORCH_CHECK(input.is_cuda(), "Input tensor must be on CUDA device");
     TORCH_CHECK(input.scalar_type() == torch::kBFloat16, "Input tensor must be BFloat16");
