@@ -5,8 +5,16 @@ import numpy as np
 import struct
 
 def bfloat16_to_hex(x):
-    return f"{struct.unpack('<H', struct.pack('<e', x))[0]:04x}"
-
+    try:
+        return f"{struct.unpack('<H', struct.pack('<e', x))[0]:04x}"
+    except OverflowError:
+        # Handle infinity and very large numbers
+        if x == float('inf'):
+            return "7f80"
+        elif x == float('-inf'):
+            return "ff80"
+        else:
+            return "7f7f" if x > 0 else "ff7f"
 def benchmark_compression(input_size, num_iterations=1):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type != "cuda":
